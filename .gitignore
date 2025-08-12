@@ -1,0 +1,5 @@
+# Ignore data file, environment configs etc.
+data.json
+.env
+__pycache__/
+*.pyc
