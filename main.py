@@ -1,4 +1,7 @@
-import json, re, os, sys, logging, asyncio
+import json
+import re
+import os
+import logging
 from datetime import datetime, timedelta
 from telegram import Update, ChatPermissions
 from telegram.ext import (
@@ -13,37 +16,39 @@ BOT_TOKEN = os.getenv("BOT_TOKEN")
 OWNER_ID = 6216990986
 DATA_FILE = "data.json"
 
-# Load data
+# Load data or initialize empty dict
 try:
     with open(DATA_FILE, "r") as f:
         db = json.load(f)
-except:
+except (FileNotFoundError, json.JSONDecodeError):
     db = {}
 
 def save():
     with open(DATA_FILE, "w") as f:
         json.dump(db, f)
 
-def is_link(text: str):
-    if not text: return False
+def is_link(text: str) -> bool:
+    if not text:
+        return False
+    # Detect links or telegram handles in bio
     return bool(re.search(r"(https?://|www\.|t\.me/|telegram\.me/|@\w+)", text))
 
-async def is_admin(update: Update, user_id: int):
+async def is_admin(update: Update, user_id: int) -> bool:
     try:
         member = await update.effective_chat.get_member(user_id)
         return member.status in ["administrator", "creator"]
-    except:
+    except TelegramError:
         return False
 
-# ========== Message Handler ========== #
+# Message handler: check user bio links, warn and mute
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
+    if not msg or msg.chat.type == "private":
+        return
+
     user = msg.from_user
     chat_id = str(msg.chat.id)
     uid = user.id
-
-    if not msg or msg.chat.type == "private":
-        return
 
     if await is_admin(update, uid):
         return
@@ -59,7 +64,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if is_link(bio):
-        # Bio has link
         await msg.delete()
 
         warns = db[chat_id]["warns"].get(str(uid), 0) + 1
@@ -69,19 +73,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if warns >= 3:
             until = datetime.utcnow() + timedelta(hours=1)
             await msg.chat.restrict_member(uid, ChatPermissions(can_send_messages=False), until_date=until)
-            await msg.reply_text(f"🔇 {user.mention_html()} muted for 1 hour due to bio link (3 warnings).", parse_mode="HTML")
+            await msg.reply_html(f"🔇 {user.mention_html()} muted for 1 hour due to bio link (3 warnings).")
         else:
-            await msg.reply_text(f"⚠️ {user.mention_html()} has link in bio. Warning {warns}/3", parse_mode="HTML")
+            await msg.reply_html(f"⚠️ {user.mention_html()} has link in bio. Warning {warns}/3")
 
-# ========== Commands ========== #
+# /allowbio command: add user to allowed list
 async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
     if not await is_admin(update, user.id):
+        await update.message.reply_text("❌ You must be admin to use this command.")
         return
 
     if not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("Usage: /allowbio <user_id>")
+        await update.message.reply_text("Usage: /allowbio <user_id>")
+        return
 
     uid = int(context.args[0])
     db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
@@ -90,54 +96,58 @@ async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
         save()
         await update.message.reply_text(f"✅ User {uid} allowed.")
     else:
-        await update.message.reply_text("⚠️ Already allowed.")
+        await update.message.reply_text("⚠️ User already allowed.")
 
+# /delbio command: remove user from allowed list
 async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
     if not await is_admin(update, user.id):
+        await update.message.reply_text("❌ You must be admin to use this command.")
         return
 
     if not context.args or not context.args[0].isdigit():
-        return await update.message.reply_text("Usage: /delbio <user_id>")
+        await update.message.reply_text("Usage: /delbio <user_id>")
+        return
 
     uid = int(context.args[0])
     if uid in db.get(chat_id, {}).get("allowed", []):
         db[chat_id]["allowed"].remove(uid)
         save()
-        await update.message.reply_text(f"✅ User {uid} removed.")
+        await update.message.reply_text(f"✅ User {uid} removed from allowed list.")
     else:
-        await update.message.reply_text("⚠️ User not in allowed list.")
+        await update.message.reply_text("⚠️ User not found in allowed list.")
 
-# Broadcast command (owner only)
+# /broadcast command: owner only
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
+        await update.message.reply_text("❌ You are not authorized to use this command.")
         return
 
     if not context.args:
-        return await update.message.reply_text("Usage: /broadcast <message>")
+        await update.message.reply_text("Usage: /broadcast <message>")
+        return
 
     msg_text = " ".join(context.args)
     sent, failed = 0, 0
 
-    chats = list(db.keys())
-    for cid in chats:
+    for cid in db.keys():
         try:
             await context.bot.send_message(chat_id=int(cid), text=msg_text)
             sent += 1
-        except:
+        except Exception as e:
+            logging.warning(f"Failed to send broadcast to {cid}: {e}")
             failed += 1
 
     await update.message.reply_text(f"📢 Broadcast sent to {sent} groups. Failed: {failed}")
 
-# Track groups
+# Track groups to db on any message
 async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
     save()
 
-# ========== Main ========== #
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
