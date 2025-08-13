@@ -134,4 +134,45 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(cid), text=msg_text)
             sent += 1
         except Exception as e:
-            logging.warning(f"Failed to send b
+            logging.warning(f"Failed to send broadcast to {cid}: {e}")
+            failed += 1
+
+    await update.message.reply_text(f"📢 Broadcast sent to {sent} groups. Failed: {failed}")
+
+async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = str(update.effective_chat.id)
+    db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
+    save()
+
+# Dummy HTTP server (for Render)
+async def handle_healthcheck(request):
+    return web.Response(text="Bot is running!")
+
+async def start_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/', handle_healthcheck)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 10000)))
+    await site.start()
+    print("Web server started")
+
+async def main_async():
+    bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
+
+    bot_app.add_handler(CommandHandler("allowbio", allowbio))
+    bot_app.add_handler(CommandHandler("delbio", delbio))
+    bot_app.add_handler(CommandHandler("broadcast", broadcast))
+    bot_app.add_handler(MessageHandler(filters.ALL, join_group))
+    bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    await asyncio.gather(
+        start_http_server(),
+        bot_app.run_polling()
+    )
+
+def main():
+    asyncio.run(main_async())
+
+if __name__ == "__main__":
+    main()
