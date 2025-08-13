@@ -12,13 +12,15 @@ from telegram.error import TelegramError
 import asyncio
 from aiohttp import web
 
+# Logging
 logging.basicConfig(level=logging.INFO)
 
+# ENV variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = 6216990986
+OWNER_ID = 6216990986  # Change this to your Telegram user ID
 DATA_FILE = "data.json"
 
-# Load data or initialize empty dict
+# Load data or initialize
 try:
     with open(DATA_FILE, "r") as f:
         db = json.load(f)
@@ -41,6 +43,7 @@ async def is_admin(update: Update, user_id: int) -> bool:
     except TelegramError:
         return False
 
+# Handle messages from users
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.chat.type == "private":
@@ -77,6 +80,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.reply_html(f"⚠️ {user.mention_html()} has link in bio. Warning {warns}/3")
 
+# Admin command to allow user
 async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -97,6 +101,7 @@ async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User already allowed.")
 
+# Admin command to remove allowed user
 async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -116,6 +121,7 @@ async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User not found in allowed list.")
 
+# Owner-only command to broadcast to all groups
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
@@ -139,12 +145,13 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📢 Broadcast sent to {sent} groups. Failed: {failed}")
 
+# Track new group joins
 async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
     save()
 
-# Dummy HTTP server (for Render)
+# Dummy HTTP server (for uptime check)
 async def handle_healthcheck(request):
     return web.Response(text="Bot is running!")
 
@@ -155,9 +162,10 @@ async def start_http_server():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 10000)))
     await site.start()
-    print("Web server started")
+    print("✅ Web server started on port", os.getenv("PORT", 10000))
 
-async def main_async():
+# Main entry
+async def main():
     bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     bot_app.add_handler(CommandHandler("allowbio", allowbio))
@@ -171,8 +179,7 @@ async def main_async():
         bot_app.run_polling()
     )
 
-def main():
-    asyncio.run(main_async())
-
 if __name__ == "__main__":
-    main()
+    loop = asyncio.get_event_loop()
+    loop.create_task(main())
+    loop.run_forever()
