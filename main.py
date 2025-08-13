@@ -15,12 +15,12 @@ from aiohttp import web
 # Logging
 logging.basicConfig(level=logging.INFO)
 
-# ENV variables
+# ENV
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = 6216990986  # Change this to your Telegram user ID
+OWNER_ID = 6216990986
 DATA_FILE = "data.json"
 
-# Load data or initialize
+# Load or initialize database
 try:
     with open(DATA_FILE, "r") as f:
         db = json.load(f)
@@ -32,9 +32,7 @@ def save():
         json.dump(db, f)
 
 def is_link(text: str) -> bool:
-    if not text:
-        return False
-    return bool(re.search(r"(https?://|www\.|t\.me/|telegram\.me/|@\w+)", text))
+    return bool(re.search(r"(https?://|www\.|t\.me/|telegram\.me/|@\w+)", text or ""))
 
 async def is_admin(update: Update, user_id: int) -> bool:
     try:
@@ -43,7 +41,6 @@ async def is_admin(update: Update, user_id: int) -> bool:
     except TelegramError:
         return False
 
-# Handle messages from users
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.chat.type == "private":
@@ -68,7 +65,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if is_link(bio):
         await msg.delete()
-
         warns = db[chat_id]["warns"].get(str(uid), 0) + 1
         db[chat_id]["warns"][str(uid)] = warns
         save()
@@ -80,7 +76,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.reply_html(f"⚠️ {user.mention_html()} has link in bio. Warning {warns}/3")
 
-# Admin command to allow user
 async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -101,7 +96,6 @@ async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User already allowed.")
 
-# Admin command to remove allowed user
 async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -121,7 +115,6 @@ async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User not found in allowed list.")
 
-# Owner-only command to broadcast to all groups
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
@@ -145,13 +138,12 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(f"📢 Broadcast sent to {sent} groups. Failed: {failed}")
 
-# Track new group joins
 async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
     save()
 
-# Dummy HTTP server (for uptime check)
+# HTTP healthcheck route
 async def handle_healthcheck(request):
     return web.Response(text="Bot is running!")
 
@@ -162,10 +154,14 @@ async def start_http_server():
     await runner.setup()
     site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", 10000)))
     await site.start()
-    print("✅ Web server started on port", os.getenv("PORT", 10000))
+    logging.info("✅ HTTP server started")
 
-# Main entry
-async def main():
+# --- Run everything ---
+async def run_bot():
+    # Start HTTP server
+    asyncio.create_task(start_http_server())
+
+    # Build app
     bot_app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     bot_app.add_handler(CommandHandler("allowbio", allowbio))
@@ -174,12 +170,8 @@ async def main():
     bot_app.add_handler(MessageHandler(filters.ALL, join_group))
     bot_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    await asyncio.gather(
-        start_http_server(),
-        bot_app.run_polling()
-    )
+    await bot_app.run_polling()
 
+# Main entry point for Render
 if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    asyncio.run(run_bot())
