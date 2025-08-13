@@ -9,6 +9,8 @@ from telegram.ext import (
     MessageHandler, ContextTypes, filters
 )
 from telegram.error import TelegramError
+import asyncio
+from aiohttp import web
 
 logging.basicConfig(level=logging.INFO)
 
@@ -148,7 +150,19 @@ async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
     save()
 
-def main():
+async def handle_healthcheck(request):
+    return web.Response(text="OK")
+
+async def start_http_server():
+    app = web.Application()
+    app.add_routes([web.get('/healthz', handle_healthcheck)])
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", "10000")))
+    await site.start()
+    print(f"HTTP server started on port {os.getenv('PORT', '10000')}")
+
+async def main_async():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("allowbio", allowbio))
@@ -157,7 +171,14 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, join_group))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    app.run_polling()
+    # Start HTTP server and polling concurrently
+    await asyncio.gather(
+        start_http_server(),
+        app.run_polling()
+    )
+
+def main():
+    asyncio.run(main_async())
 
 if __name__ == "__main__":
     main()
