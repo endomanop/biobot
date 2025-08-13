@@ -32,7 +32,6 @@ def save():
 def is_link(text: str) -> bool:
     if not text:
         return False
-    # Detect links or telegram handles in bio
     return bool(re.search(r"(https?://|www\.|t\.me/|telegram\.me/|@\w+)", text))
 
 async def is_admin(update: Update, user_id: int) -> bool:
@@ -42,7 +41,6 @@ async def is_admin(update: Update, user_id: int) -> bool:
     except TelegramError:
         return False
 
-# Message handler: check user bio links, warn and mute
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = update.message
     if not msg or msg.chat.type == "private":
@@ -79,7 +77,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             await msg.reply_html(f"⚠️ {user.mention_html()} has link in bio. Warning {warns}/3")
 
-# /allowbio command: add user to allowed list
 async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -100,7 +97,6 @@ async def allowbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User already allowed.")
 
-# /delbio command: remove user from allowed list
 async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = str(update.effective_chat.id)
     user = update.effective_user
@@ -120,7 +116,6 @@ async def delbio(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text("⚠️ User not found in allowed list.")
 
-# /broadcast command: owner only
 async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if user.id != OWNER_ID:
@@ -139,46 +134,4 @@ async def broadcast(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=int(cid), text=msg_text)
             sent += 1
         except Exception as e:
-            logging.warning(f"Failed to send broadcast to {cid}: {e}")
-            failed += 1
-
-    await update.message.reply_text(f"📢 Broadcast sent to {sent} groups. Failed: {failed}")
-
-# Track groups to db on any message
-async def join_group(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = str(update.effective_chat.id)
-    db.setdefault(chat_id, {"allowed": [], "warns": {}, "groups": []})
-    save()
-
-async def handle_healthcheck(request):
-    return web.Response(text="OK")
-
-async def start_http_server():
-    app = web.Application()
-    app.add_routes([web.get('/healthz', handle_healthcheck)])
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, '0.0.0.0', int(os.getenv("PORT", "10000")))
-    await site.start()
-    print(f"HTTP server started on port {os.getenv('PORT', '10000')}")
-
-async def main_async():
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
-
-    app.add_handler(CommandHandler("allowbio", allowbio))
-    app.add_handler(CommandHandler("delbio", delbio))
-    app.add_handler(CommandHandler("broadcast", broadcast))
-    app.add_handler(MessageHandler(filters.ALL, join_group))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Start HTTP server and polling concurrently
-    await asyncio.gather(
-        start_http_server(),
-        app.run_polling()
-    )
-
-def main():
-    asyncio.run(main_async())
-
-if __name__ == "__main__":
-    main()
+            logging.warning(f"Failed to send b
